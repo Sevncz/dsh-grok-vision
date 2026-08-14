@@ -1,25 +1,23 @@
 # dsh-grok-vision
 
-DeepSeek Harness（DSH）的 agent preset：**标准模式 + 本地 Grok 多模态读图**。
+DeepSeek Harness（DSH）**宿主级**插件：注册 `grok_vision` 工具，通过本地 Grok CLI 提供多模态图像理解。
 
-在 `standard` 预设的全部能力之上，注册 `grok_vision` 工具：当会话需要多模态能力（截图、图表、UI、照片）而主模型不支持视觉输入时，Agent 读取本地图片交给 Grok CLI 分析，返回文本结果。
+挂在宿主层，**所有会话**（含重启前创建的旧会话、任意预设的会话）自动可用，无需任何预设配置。
 
 ## 目录结构
 
 ```
-agent.cordis.yml                    # preset 组成：standard 全量 + tool-grok-vision 行
-preset.yml                          # 显示名与描述
-packages/dsh-grok-vision/           # 插件包：注册 grok_vision 工具
-  lib/index.js
+packages/dsh-grok-vision/       # 插件包（npm 名 dsh-grok-vision）
+  lib/runtime.js                # 注册 grok_vision 工具
   package.json
-install.sh                          # 一键安装到本机 DSH
+install.sh                      # 一键安装（宿主行 + profile 依赖）
 ```
 
 ## 工作原理
 
-- preset 行 `name: 'dsh-grok-vision'` 从 DSH 宿主 profile 的模块基址解析（web profile 的 node_modules 链），所以插件包只需作为 profile 的 `file:` 依赖安装一次。
-- preset 在每次会话创建时挂载：安装或修改后**新会话立即生效，无需重启宿主进程**。
-- 插件只注册进宿主的 `tools` 注册表，不发布任何 Service，因此 preset 内无需 isolate realm。
+- `install.sh` 在 web profile 的 `cordis.patch.yml` 写入一行宿主条目（模块名 `dsh-grok-vision`），并把插件包登记为 profile 的 `file:` 依赖。
+- DSH 启动时读取宿主行 → 在全局 `tools` 注册表注册 `grok_vision` → 所有会话可见。
+- 插件不发布任何 Service，宿主行无需 isolate realm。
 
 ## 安装
 
@@ -29,30 +27,23 @@ install.sh                          # 一键安装到本机 DSH
 git clone <仓库地址> ~/tcode/github/dsh-grok-vision
 cd dsh-grok-vision
 ./install.sh
+# 重启 DSH 宿主进程（宿主层行只在启动时读取）
 ```
 
-`install.sh` 做三件事：
-
-1. 将 preset 文件**复制**到 `~/.dsh/.agent-presets/dsh-grok-vision`（DSH 的预设扫描不跟随软链，必须是真实目录）
-2. 将 `packages/dsh-grok-vision` 登记为 web profile 的 `file:` 依赖并执行 `pnpm install`
-3. 检查 `~/.dsh/settings.yaml` 的默认预设，若未设置则设为 `dsh-grok-vision`（也可在 Web 设置里手动选择）
-
-脚本幂等：修改本仓库后重跑 `./install.sh` 即可完成同步（插件包为 hardlink 安装，改动即时生效；preset 文件以复制方式部署，需重跑同步）。
+升级 DSH 不会清除安装：宿主行在 `~/.dsh/profiles/web/cordis.patch.yml`，插件包在仓库内，均位于安装目录之外。
 
 ## 使用
 
-新建会话后自动获得 `grok_vision`。Agent 需要看图时调用，图片来源有三种：
+Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 
 - `images`：本地图片路径（绝对路径或相对会话工作区，PNG / JPEG / WebP / GIF）
-- `images: ["clipboard"]`：读取 macOS 剪贴板中的图片（复制一张截图后直接说"看看我剪贴板里的图"）
+- `images: ["clipboard"]`：读取 macOS 剪贴板中的图片（复制一张截图后说"看看我剪贴板里的图"）
 - `images: ["screen"]`：截取当前显示器画面（说"看看我的屏幕"）
-- `prompt`：分析要求（要提取、回答或判断什么）
-
-例："我复制了一张报错截图，帮我看看" → Agent 自动调用 `grok_vision(images: ["clipboard"])`。
+- `prompt`：分析要求
 
 ## 配置
 
-`agent.cordis.yml` 中 `tool-grok-vision` 行的 `config`：
+`cordis.patch.yml` 宿主行的 `config`：
 
 | 项 | 默认 | 说明 |
 | --- | --- | --- |
@@ -61,8 +52,14 @@ cd dsh-grok-vision
 | `maxImageBytes` | `8388608`（8 MiB） | 单图大小上限 |
 | `maxImages` | `4` | 单次图片数上限 |
 
+## 代码更新
+
+宿主进程会缓存裸包名的解析结果与模块实例。修改本包代码后二选一：
+
+1. **重启宿主一次**（最简单）；
+2. 把宿主行的 `name` 临时指向 `dsh-grok-vision/runtime` 子路径（新 specifier，免重启）。
+
 ## 注意事项
 
 - 每次调用消耗 x.ai 配额（小图约 $0.06 / 12 秒）。
 - 插件包内的 peer 依赖（`@deepseek-ai/dsh-tools` 等）由 DSH 安装自带的扁平模块目录解析，仓库无需携带。
-- 升级 DSH 后无需重装：preset 与插件包均位于 DSH 安装之外。

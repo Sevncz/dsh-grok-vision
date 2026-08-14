@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
-# 将 dsh-grok-vision preset 安装到本机 DSH：
-#   1. 复制 preset 到 ~/.dsh/.agent-presets/dsh-grok-vision（DSH 的预设扫描不跟随软链，必须真实目录）
-#   2. 将 packages/dsh-grok-vision 登记为 web profile 的 file: 依赖
-#   3. 将默认预设设为 dsh-grok-vision（写入或替换 ~/.dsh/settings.yaml 中的 agent-presets.default）
-#
-# 幂等：可反复执行。修改本仓库后重跑本脚本即完成同步。
+# 将 dsh-grok-vision 安装为本机 DSH 的宿主级插件：
+#   1. 将 packages/dsh-grok-vision 登记为 web profile 的 file: 依赖
+#   2. 在 profile 的 cordis.patch.yml 写入宿主行（幂等）
+# 宿主层行在 DSH 启动时读取：安装完成后重启一次宿主即生效。
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-PRESET_DIR="$DSH_HOME/.agent-presets/dsh-grok-vision"
 PROFILE_DIR="$DSH_HOME/profiles/web"
-SETTINGS="$DSH_HOME/settings.yaml"
+PATCH="$PROFILE_DIR/cordis.patch.yml"
 
 if [ ! -d "$PROFILE_DIR" ]; then
   echo "错误：未找到 DSH web profile 目录 $PROFILE_DIR" >&2
@@ -19,47 +16,33 @@ if [ ! -d "$PROFILE_DIR" ]; then
 fi
 command -v pnpm >/dev/null 2>&1 || { echo "错误：未找到 pnpm" >&2; exit 1; }
 
-echo "==> 1/3 复制 preset 到用户预设目录"
-if [ -e "$PRESET_DIR" ] || [ -L "$PRESET_DIR" ]; then
-  rm -rf "$PRESET_DIR"
-fi
-mkdir -p "$PRESET_DIR"
-cp "$REPO_DIR/agent.cordis.yml" "$REPO_DIR/preset.yml" "$PRESET_DIR/"
-
-echo "==> 2/3 登记插件包为 web profile 依赖"
+echo "==> 1/2 登记插件包为 web profile 依赖"
 cd "$PROFILE_DIR"
 pnpm add "dsh-grok-vision@file:$REPO_DIR/packages/dsh-grok-vision"
 
-echo "==> 3/3 设置默认预设"
-python3 - "$SETTINGS" <<'PYEOF'
+echo "==> 2/2 写入宿主行"
+python3 - "$PATCH" <<'PYEOF'
 import sys, os
 path = sys.argv[1]
-text = open(path).read() if os.path.exists(path) else ""
-lines = text.splitlines(keepends=True)
-out, i, inserted = [], 0, False
-while i < len(lines):
-    line = lines[i]
-    if line.startswith("agent-presets:"):
-        out.append(line)
-        i += 1
-        # 吸收该段下已有的 default 行（无论值是什么），用我们的值替换
-        while i < len(lines):
-            nxt = lines[i]
-            if nxt.startswith("  default:"):
-                i += 1
-                continue
-            break
-        out.append("  default: dsh-grok-vision\n")
-        inserted = True
-        continue
-    out.append(line)
-    i += 1
-if not inserted:
-    if out and not out[-1].endswith("\n"):
-        out.append("\n")
-    out.append("\nagent-presets:\n  default: dsh-grok-vision\n")
-open(path, "w").write("".join(out))
-print("    已设置 agent-presets.default: dsh-grok-vision")
+text = open(path).read() if os.path.exists(path) else "[]\n"
+if "id: dsh-grok-vision" in text:
+    print("    宿主行已存在，跳过")
+else:
+    entry = """
+# Host-level grok_vision tool: registered once at startup, visible to EVERY
+# session regardless of agent preset (including pre-existing sessions).
+- insert:
+    - id: dsh-grok-vision
+      name: 'dsh-grok-vision'
+      config:
+        grokBin: !!js process.env.GROK_BIN || 'grok'
+"""
+    if "[]" in text:
+        text = text.replace("[]", entry, 1)
+    else:
+        text = text.rstrip() + "\n" + entry
+    open(path, "w").write(text)
+    print("    已写入宿主行")
 PYEOF
 
-echo "完成。新会话即带 grok_vision 工具（当前运行中的会话不受影响）。"
+echo "完成。重启 DSH 后，所有会话（含旧会话、任意预设）自动获得 grok_vision。"
