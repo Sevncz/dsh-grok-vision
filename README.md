@@ -1,4 +1,4 @@
-# standard-grok
+# dsh-grok-vision
 
 DeepSeek Harness（DSH）的 agent preset：**标准模式 + 本地 Grok 多模态读图**。
 
@@ -26,16 +26,16 @@ install.sh                          # 一键安装到本机 DSH
 前置条件：已安装 DSH 与 Grok CLI（`grok` 在 PATH 中或通过 `GROK_BIN` 指定），Grok CLI 已登录（`~/.grok/auth.json`）。
 
 ```bash
-git clone <仓库地址> ~/tcode/github/standard-grok
-cd standard-grok
+git clone <仓库地址> ~/tcode/github/dsh-grok-vision
+cd dsh-grok-vision
 ./install.sh
 ```
 
 `install.sh` 做三件事：
 
-1. 将 preset 文件**复制**到 `~/.dsh/.agent-presets/standard-grok`（DSH 的预设扫描不跟随软链，必须是真实目录）
+1. 将 preset 文件**复制**到 `~/.dsh/.agent-presets/dsh-grok-vision`（DSH 的预设扫描不跟随软链，必须是真实目录）
 2. 将 `packages/dsh-grok-vision` 登记为 web profile 的 `file:` 依赖并执行 `pnpm install`
-3. 检查 `~/.dsh/settings.yaml` 的默认预设，若未设置则设为 `standard-grok`（也可在 Web 设置里手动选择）
+3. 检查 `~/.dsh/settings.yaml` 的默认预设，若未设置则设为 `dsh-grok-vision`（也可在 Web 设置里手动选择）
 
 脚本幂等：修改本仓库后重跑 `./install.sh` 即可完成同步（插件包为 hardlink 安装，改动即时生效；preset 文件以复制方式部署，需重跑同步）。
 
