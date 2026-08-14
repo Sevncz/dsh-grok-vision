@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # 将 standard-grok preset 安装到本机 DSH：
-#   1. 软链 preset 目录到 ~/.dsh/.agent-presets/standard-grok
+#   1. 复制 preset 到 ~/.dsh/.agent-presets/standard-grok（DSH 的预设扫描不跟随软链，必须真实目录）
 #   2. 将 packages/dsh-tool-grok-vision 登记为 web profile 的 file: 依赖
 #   3. 将默认预设设为 standard-grok（写入或替换 ~/.dsh/settings.yaml 中的 agent-presets.default）
+#
+# 幂等：可反复执行。修改本仓库后重跑本脚本即完成同步。
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,11 +19,12 @@ if [ ! -d "$PROFILE_DIR" ]; then
 fi
 command -v pnpm >/dev/null 2>&1 || { echo "错误：未找到 pnpm" >&2; exit 1; }
 
-echo "==> 1/3 链接 preset 目录"
+echo "==> 1/3 复制 preset 到用户预设目录"
 if [ -e "$PRESET_DIR" ] || [ -L "$PRESET_DIR" ]; then
   rm -rf "$PRESET_DIR"
 fi
-ln -s "$REPO_DIR" "$PRESET_DIR"
+mkdir -p "$PRESET_DIR"
+cp "$REPO_DIR/agent.cordis.yml" "$REPO_DIR/preset.yml" "$PRESET_DIR/"
 
 echo "==> 2/3 登记插件包为 web profile 依赖"
 cd "$PROFILE_DIR"

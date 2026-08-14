@@ -33,9 +33,11 @@ cd standard-grok
 
 `install.sh` 做三件事：
 
-1. 将本仓库软链到 `~/.dsh/.agent-presets/standard-grok`
+1. 将 preset 文件**复制**到 `~/.dsh/.agent-presets/standard-grok`（DSH 的预设扫描不跟随软链，必须是真实目录）
 2. 将 `packages/dsh-tool-grok-vision` 登记为 web profile 的 `file:` 依赖并执行 `pnpm install`
 3. 检查 `~/.dsh/settings.yaml` 的默认预设，若未设置则设为 `standard-grok`（也可在 Web 设置里手动选择）
+
+脚本幂等：修改本仓库后重跑 `./install.sh` 即可完成同步（插件包为 hardlink 安装，改动即时生效；preset 文件以复制方式部署，需重跑同步）。
 
 ## 使用
 
