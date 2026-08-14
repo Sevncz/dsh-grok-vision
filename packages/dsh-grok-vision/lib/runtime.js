@@ -10,9 +10,10 @@
 import z from "@deepseek-ai/schemastery";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { extname, isAbsolute, join, resolve } from "node:path";
+import { dirname, extname, isAbsolute, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Cordis plugin name used by loader diagnostics. */
 const name = "tool-grok-vision";
@@ -23,6 +24,8 @@ const inject = ["tools", "systemPrompt"];
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_IMAGES = 4;
+const DEFAULT_IMAGE_TIMEOUT_MS = 180000;
+const DEFAULT_OUTPUT_DIR = "/tmp/dsh-grok-images";
 
 /** Cap on collected stdout bytes, defensive only (text answers are small). */
 const MAX_STDOUT_BYTES = 4 * 1024 * 1024;
@@ -36,6 +39,14 @@ const MIME_BY_EXT = {
   ".gif": "image/gif",
 };
 
+/** Baoyu style assets shipped in this package: skill name → directory. */
+const STYLE_SKILLS = [
+  ["baoyu-cover-image", "baoyu-cover-image", "cover"],
+  ["baoyu-infographic", "baoyu-infographic", "infographic"],
+  ["baoyu-comic", "baoyu-comic", "comic"],
+  ["baoyu-xhs-images", "baoyu-xhs-images", "xhs"],
+];
+
 const Config = z.object({
   /** Path or name of the local grok binary. */
   grokBin: z.string().default("grok"),
@@ -45,6 +56,14 @@ const Config = z.object({
   maxImageBytes: z.number().default(DEFAULT_MAX_IMAGE_BYTES),
   /** Maximum number of images per call. */
   maxImages: z.number().default(DEFAULT_MAX_IMAGES),
+  /** x.ai image generation model. */
+  imageModel: z.string().default("grok-imagine-image"),
+  /** Image generation budget (ms). */
+  imageTimeoutMs: z.number().default(DEFAULT_IMAGE_TIMEOUT_MS),
+  /** Default output directory for generated images. */
+  outputDir: z.string().default(DEFAULT_OUTPUT_DIR),
+  /** Optional explicit xAI API key; when unset, the local grok login token is used. */
+  xaiApiKey: z.string(),
 });
 
 function assertPositiveInteger(label, value) {
@@ -239,19 +258,157 @@ function parseGrokOutput(stdout) {
 }
 
 /**
- * Register the `grok_vision` tool and its system-prompt guidance.
+ * Resolve the xAI API key: explicit config first, then the local Grok CLI
+ * login token (`~/.grok/auth.json`). Never logged or surfaced.
+ */
+async function resolveXaiKey(explicit) {
+  if (explicit !== undefined && explicit.length > 0) return explicit;
+  try {
+    const authPath = join(resolve(process.env.HOME ?? "~", ".grok"), "auth.json");
+    const auth = JSON.parse(await readFile(authPath, "utf8"));
+    const entry = Object.values(auth)[0];
+    if (entry !== undefined && typeof entry.key === "string" && entry.key.length > 0) {
+      return entry.key;
+    }
+  } catch {
+    /* fall through */
+  }
+  throw new Error(
+    "no xAI API key: set `xaiApiKey` in the plugin config or log in with the local grok CLI (grok login)",
+  );
+}
+
+/** Directory of this package's style assets (styles/*). */
+function styleAssetDir() {
+  return join(dirname(fileURLToPath(import.meta.url)), "..", "styles");
+}
+
+/** Load one style's compact spec (a few KB; x.ai caps prompts at 8000 chars). */
+async function loadStyleSnippet(styleKey) {
+  const entry = STYLE_SKILLS.find(([, , key]) => key === styleKey);
+  if (entry === undefined) {
+    throw new Error(`unknown style "${styleKey}" (supported: ${STYLE_SKILLS.map(([, , k]) => k).join(", ")})`);
+  }
+  return await readFile(join(styleAssetDir(), "summaries", `${styleKey}.md`), "utf8");
+}
+
+/**
+ * Call x.ai images/generations and write every returned image to disk.
+ * Returns the list of saved paths.
+ */
+async function generateImages(request, signal) {
+  const { key, model, prompt, n, aspectRatio, resolution, outputDir, output } = request;
+  const body = {
+    model,
+    prompt,
+    n,
+    aspect_ratio: aspectRatio,
+    resolution,
+    response_format: "b64_json",
+  };
+  const response = await fetch("https://api.x.ai/v1/images/generations", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 2000);
+    throw new Error(`x.ai image generation failed (HTTP ${response.status}): ${detail}`);
+  }
+  const payload = await response.json();
+  const items = Array.isArray(payload.data) ? payload.data : [];
+  if (items.length === 0) throw new Error("x.ai returned no images");
+  await mkdir(outputDir, { recursive: true });
+  const saved = [];
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const b64 = item.b64_json ?? (item.url !== undefined ? undefined : undefined);
+    if (typeof b64 !== "string" || b64.length === 0) {
+      throw new Error(`x.ai image ${i} has no b64_json payload (response_format must be b64_json)`);
+    }
+    const bytes = Buffer.from(b64, "base64");
+    const ext = extForBytes(bytes);
+    const base =
+      output !== undefined
+        ? items.length === 1
+          ? output.replace(/\.[^.]+$/, "")
+          : output.replace(/\.[^.]+$/, `-${String(i + 1)}`)
+        : join(outputDir, `grok-img-${Date.now().toString(36)}-${String(i + 1)}`);
+    const target = `${base}${ext}`;
+    await writeFile(resolve(target), bytes);
+    saved.push(resolve(target));
+  }
+  return saved;
+}
+
+/** Detect the real image extension from magic bytes (x.ai may return JPEG for .png requests). */
+function extForBytes(bytes) {
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) return ".jpg";
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return ".png";
+  if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46) return ".webp";
+  return ".png";
+}
+
+/** Extract the `description` field from a SKILL.md frontmatter block. */
+function frontmatterDescription(content, fallback) {
+  const match = /^---\n([\s\S]*?)\n---/.exec(content);
+  if (match === null) return fallback;
+  const line = match[1]
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l.startsWith("description:"));
+  if (line === undefined) return fallback;
+  return line.slice("description:".length).trim().replace(/^["']|["']$/g, "");
+}
+
+/**
+ * Register the baoyu style skills into the global skills layer. Skill bodies
+ * load on demand, so shipping the full markdown is cheap; the resource base
+ * points at the asset directory for reference files.
+ */
+async function registerStyleSkills(ctx) {
+  const skills = ctx.get("skills");
+  if (skills === undefined) return;
+  const base = styleAssetDir();
+  for (const [skillName, dir] of STYLE_SKILLS) {
+    try {
+      const content = await readFile(join(base, dir, "SKILL.md"), "utf8");
+      skills.register({
+        name: skillName,
+        description: frontmatterDescription(content, `Baoyu ${skillName} style guide for image generation.`),
+        whenToUse: `Use when the user asks to generate images in the ${dir} style (see the skill body for triggers).`,
+        content,
+        source: "runtime",
+        resourceBase: { kind: "directory", path: join(base, dir) },
+      });
+    } catch (error) {
+      console.error(`[tool-grok-vision] failed to register style skill ${skillName}:`, error.message);
+    }
+  }
+}
+
+/**
+ * Register the `grok_vision` and `grok_generate_image` tools plus the style
+ * skills and system-prompt guidance.
  * Registrations are effect-scoped and unregister on plugin dispose.
  */
-function apply(ctx, config) {
+async function apply(ctx, config) {
   const resolved = config;
   assertPositiveInteger("timeoutMs", resolved.timeoutMs);
   assertPositiveInteger("maxImageBytes", resolved.maxImageBytes);
   assertPositiveInteger("maxImages", resolved.maxImages);
+  assertPositiveInteger("imageTimeoutMs", resolved.imageTimeoutMs);
+
+  await registerStyleSkills(ctx);
 
   ctx.systemPrompt.section({
     name: "tool:grok_vision",
     order: 115,
-    text: 'Your primary model cannot see images directly. When a task requires visual understanding — a screenshot, diagram, chart, UI mockup, or photo — call the grok_vision tool instead of asking the user to describe them. Image sources: local file paths, "clipboard" (use when the user says they copied/screenshotted something to the clipboard), and "screen" (use when the user wants you to look at their screen).',
+    text: 'Your primary model cannot see images directly. When a task requires visual understanding — a screenshot, diagram, chart, UI mockup, or photo — call the grok_vision tool instead of asking the user to describe them. Image sources: local file paths, "clipboard" (use when the user says they copied/screenshotted something to the clipboard), and "screen" (use when the user wants you to look at their screen). For IMAGE GENERATION, call grok_generate_image; when the user wants a specific visual style (article cover, infographic, comic, xiaohongshu cards), load the matching baoyu-* skill first and follow its style spec in the prompt, or pass the style key to the tool.',
   });
 
   ctx.tools.register(
@@ -336,6 +493,105 @@ function apply(ctx, config) {
       },
     }),
   );
+
+  ctx.tools.register(
+    defineTool({
+      name: "grok_generate_image",
+      description:
+        "Generate raster images with the x.ai grok-imagine model. Call this when the user asks to generate, create, or draw images (article covers, infographics, comics, xiaohongshu cards, illustrations). Optionally pass a style key (cover/infographic/comic/xhs) to attach the bundled baoyu style spec to the prompt; for full control, load the matching baoyu-* skill and write the complete styled prompt yourself. Returns local file paths of the saved images.",
+      parameters: {
+        prompt: {
+          type: "string",
+          required: true,
+          description: "The image content description; write it in the target language and style.",
+        },
+        style: {
+          type: "string",
+          description:
+            "Optional bundled style spec to prepend: cover (article covers), infographic, comic, or xhs (xiaohongshu cards).",
+          enum: ["cover", "infographic", "comic", "xhs"],
+        },
+        aspect_ratio: {
+          type: "string",
+          description: "Target aspect ratio.",
+          enum: ["1:1", "3:4", "4:3", "9:16", "16:9", "2:3", "3:2", "2:1", "1:2", "auto"],
+          default: "16:9",
+        },
+        resolution: {
+          type: "string",
+          description: "Output resolution tier.",
+          enum: ["1k", "2k"],
+          default: "1k",
+        },
+        n: {
+          type: "number",
+          description: "Number of images to generate (1-4).",
+          default: 1,
+        },
+        output: {
+          type: "string",
+          description:
+            "Optional output file path (e.g. /path/cover.png). When omitted, images land in the plugin's output directory. With n > 1 a numeric suffix is appended.",
+        },
+      },
+      output: {
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            images: {
+              type: "array",
+              required: true,
+              items: { type: "string" },
+            },
+          },
+        },
+        render: (_args, value) => [
+          { type: "text", text: `Generated images:\n${value.images.map((p) => `- ${p}`).join("\n")}` },
+        ],
+      },
+      timeoutMs: resolved.imageTimeoutMs,
+      isConcurrencySafe: () => true,
+      async execute(args, exec) {
+        const { prompt, style, aspect_ratio: aspectRatio, resolution, n, output } = args;
+        if (prompt.trim().length === 0) throw new Error("prompt must be a non-empty string");
+        const count = n ?? 1;
+        if (!Number.isInteger(count) || count < 1 || count > 4) {
+          throw new Error("n must be an integer between 1 and 4");
+        }
+        const fullPrompt =
+          style !== undefined
+            ? `Follow the style specification below when generating the image.\n\n--- STYLE SPEC START ---\n${await loadStyleSnippet(style)}\n--- STYLE SPEC END ---\n\nContent request: ${prompt}`
+            : prompt;
+        const key = await resolveXaiKey(resolved.xaiApiKey);
+        return {
+          images: await generateImages(
+            {
+              key,
+              model: resolved.imageModel,
+              prompt: fullPrompt,
+              n: count,
+              aspectRatio,
+              resolution,
+              outputDir: resolved.outputDir,
+              ...(output !== undefined && output.length > 0 ? { output } : {}),
+            },
+            exec.signal,
+          ),
+        };
+      },
+    }),
+  );
 }
 
-export { Config, DEFAULT_MAX_IMAGE_BYTES, DEFAULT_MAX_IMAGES, DEFAULT_TIMEOUT_MS, apply, inject, name };
+export {
+  Config,
+  DEFAULT_IMAGE_TIMEOUT_MS,
+  DEFAULT_MAX_IMAGE_BYTES,
+  DEFAULT_MAX_IMAGES,
+  DEFAULT_OUTPUT_DIR,
+  DEFAULT_TIMEOUT_MS,
+  apply,
+  inject,
+  name,
+};

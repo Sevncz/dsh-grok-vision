@@ -41,6 +41,16 @@ Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 - `images: ["screen"]`：截取当前显示器画面（说"看看我的屏幕"）
 - `prompt`：分析要求
 
+### 生图（grok_generate_image）
+
+- `prompt`：内容描述
+- `style`（可选）：`cover`（文章封面）/ `infographic`（信息图）/ `comic`（知识漫画）/ `xhs`（小红书卡片）——工具自动附上对应风格规范；或先加载同名 `baoyu-*` skill 自己写完整风格 prompt
+- `aspect_ratio`：1:1 / 16:9 / 3:4 / 9:16 等；`resolution`：1k / 2k；`n`：1-4 张
+- `output`（可选）：输出路径，缺省存到 `outputDir`
+- 生图走 x.ai images/generations（`grok-imagine-image`），认证复用本机 grok 登录态（或配置 `xaiApiKey`）
+
+四个风格 skill（`baoyu-cover-image` / `baoyu-infographic` / `baoyu-comic` / `baoyu-xhs-images`）随插件注册为运行时 skill，模型可加载获得完整风格规范。
+
 ## 配置
 
 `cordis.patch.yml` 宿主行的 `config`：
@@ -48,9 +58,13 @@ Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 | 项 | 默认 | 说明 |
 | --- | --- | --- |
 | `grokBin` | `process.env.GROK_BIN \|\| 'grok'` | 本地 Grok 可执行文件 |
-| `timeoutMs` | `120000` | 单次调用预算 |
+| `timeoutMs` | `120000` | 读图调用预算 |
 | `maxImageBytes` | `8388608`（8 MiB） | 单图大小上限 |
 | `maxImages` | `4` | 单次图片数上限 |
+| `imageModel` | `grok-imagine-image` | 生图模型 |
+| `imageTimeoutMs` | `180000` | 生图调用预算 |
+| `outputDir` | `/tmp/dsh-grok-images` | 生成图片缺省输出目录 |
+| `xaiApiKey` | 空（用 grok 登录态） | 显式 xAI API Key |
 
 ## 代码更新
 
