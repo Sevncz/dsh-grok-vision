@@ -257,7 +257,7 @@
 # `file:` dependency of the web profile (see install.sh), so the host-base
 # module resolver finds it by name. It registers only into the host `tools`
 # registry and provides no service — no realm needed.
-- id: tool-grok-vision
+- id: dsh-grok-vision
   name: 'dsh-grok-vision'
   config:
     grokBin: !!js process.env.GROK_BIN || 'grok'
