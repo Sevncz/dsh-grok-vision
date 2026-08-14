@@ -1,8 +1,12 @@
 // Host-level `grok_vision` tool: delegate multimodal (image) analysis to the
 // local Grok CLI (`grok --prompt-file <json> --output-format json`, single-turn
 // headless). Registered through `ctx.tools`, so it is visible to every session
-// whose composition mounts this package — intended for the HOST composition,
-// never per-preset.
+// whose composition mounts this package.
+//
+// Image sources:
+//   - file paths (absolute, or relative to the workspace cwd)
+//   - "clipboard": read the macOS clipboard as PNG (osascript)
+//   - "screen":    capture the main display (screencapture, cursor included)
 import z from "@deepseek-ai/schemastery";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { spawn } from "node:child_process";
@@ -46,6 +50,67 @@ const Config = z.object({
 function assertPositiveInteger(label, value) {
   if (!Number.isInteger(value) || value < 1) {
     throw new Error(`tool-grok-vision: ${label} must be a positive integer`);
+  }
+}
+
+/** Run a command to completion; resolve stdout, reject on failure with stderr. */
+function runCommand(command, args, timeoutMs) {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk) => {
+      if (stdout.length < 1024 * 1024) stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      if (stderr.length < 64 * 1024) stderr += chunk;
+    });
+    const timer = setTimeout(() => child.kill("SIGKILL"), timeoutMs);
+    timer.unref?.();
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      rejectPromise(new Error(`${command} failed to start: ${error.message}`));
+    });
+    child.once("close", (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolvePromise(stdout);
+      else rejectPromise(new Error(`${command} exited ${code}: ${stderr.trim()}`));
+    });
+  });
+}
+
+/** Materialize the macOS clipboard as a PNG file. */
+async function materializeClipboard(targetPath) {
+  try {
+    await runCommand(
+      "osascript",
+      [
+        "-e",
+        "set pngData to the clipboard as «class PNGf»",
+        "-e",
+        `set outFile to open for access (POSIX file "${targetPath}") with write permission`,
+        "-e",
+        "write pngData to outFile",
+        "-e",
+        "close access outFile",
+      ],
+      30000,
+    );
+  } catch (error) {
+    throw new Error(
+      `failed to read the clipboard as an image (copy a screenshot first): ${error.message}`,
+    );
+  }
+}
+
+/** Capture the main display into a PNG file (silent, with cursor). */
+async function materializeScreen(targetPath) {
+  try {
+    await runCommand("screencapture", ["-x", "-C", targetPath], 30000);
+  } catch (error) {
+    throw new Error(`failed to capture the screen: ${error.message}`);
   }
 }
 
@@ -186,20 +251,20 @@ function apply(ctx, config) {
   ctx.systemPrompt.section({
     name: "tool:grok_vision",
     order: 115,
-    text: "Your primary model cannot see images directly. When a task requires visual understanding — a screenshot, diagram, chart, UI mockup, or photo — call the grok_vision tool with the local image file paths instead of asking the user to describe them. Prefer read_image (when available) or grok_vision for visual inputs.",
+    text: 'Your primary model cannot see images directly. When a task requires visual understanding — a screenshot, diagram, chart, UI mockup, or photo — call the grok_vision tool instead of asking the user to describe them. Image sources: local file paths, "clipboard" (use when the user says they copied/screenshotted something to the clipboard), and "screen" (use when the user wants you to look at their screen).',
   });
 
   ctx.tools.register(
     defineTool({
       name: "grok_vision",
       description:
-        "Analyze local image files with the local Grok multimodal model. Call this when you need visual understanding (image content, screenshots, diagrams, charts, UI inspection) that your primary model cannot perform. Images are read from disk and sent to Grok; the answer is returned as text.",
+        "Analyze images with the local Grok multimodal model. Call this when you need visual understanding (image content, screenshots, diagrams, charts, UI inspection) that your primary model cannot perform. Sources: local file paths (PNG/JPEG/WebP/GIF), 'clipboard' for the macOS clipboard image, or 'screen' to capture the user's display. The answer is returned as text.",
       parameters: {
         images: {
           type: "array",
           required: true,
           description:
-            "Paths to local image files (PNG/JPEG/WebP/GIF), resolved relative to the session workspace.",
+            'Image sources: absolute or workspace-relative file paths, and/or the special values "clipboard" (macOS clipboard image) and "screen" (capture the display).',
           items: { type: "string" },
         },
         prompt: {
@@ -223,7 +288,9 @@ function apply(ctx, config) {
       async execute(args, exec) {
         const { images, prompt } = args;
         if (!Array.isArray(images) || images.length === 0) {
-          throw new Error("images must be a non-empty array of file paths");
+          throw new Error(
+            'images must be a non-empty array of file paths or "clipboard"/"screen"',
+          );
         }
         if (images.length > resolved.maxImages) {
           throw new Error(
@@ -234,16 +301,27 @@ function apply(ctx, config) {
           throw new Error("prompt must be a non-empty string");
         }
 
-        const blocks = [];
-        for (const input of images) {
-          const imagePath = resolveImagePath(input);
-          blocks.push(await readImageBlock(imagePath, resolved.maxImageBytes));
-        }
-        blocks.push({ type: "text", text: prompt });
-
         const workDir = await mkdtemp(join(tmpdir(), "dsh-grok-vision-"));
-        const promptFile = join(workDir, "prompt.json");
         try {
+          const blocks = [];
+          let specialIndex = 0;
+          for (const input of images) {
+            const trimmed = String(input).trim();
+            let imagePath;
+            if (trimmed === "clipboard") {
+              imagePath = join(workDir, `clipboard-${specialIndex++}.png`);
+              await materializeClipboard(imagePath);
+            } else if (trimmed === "screen") {
+              imagePath = join(workDir, `screen-${specialIndex++}.png`);
+              await materializeScreen(imagePath);
+            } else {
+              imagePath = resolveImagePath(trimmed);
+            }
+            blocks.push(await readImageBlock(imagePath, resolved.maxImageBytes));
+          }
+          blocks.push({ type: "text", text: prompt });
+
+          const promptFile = join(workDir, "prompt.json");
           await writeFile(promptFile, JSON.stringify(blocks));
           const stdout = await runGrok(
             resolved.grokBin,

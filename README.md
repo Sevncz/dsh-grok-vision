@@ -41,10 +41,14 @@ cd dsh-grok-vision
 
 ## 使用
 
-新建会话后自动获得 `grok_vision`。Agent 需要看图时调用：
+新建会话后自动获得 `grok_vision`。Agent 需要看图时调用，图片来源有三种：
 
-- `images`：本地图片绝对路径数组（PNG / JPEG / WebP / GIF）
+- `images`：本地图片路径（绝对路径或相对会话工作区，PNG / JPEG / WebP / GIF）
+- `images: ["clipboard"]`：读取 macOS 剪贴板中的图片（复制一张截图后直接说"看看我剪贴板里的图"）
+- `images: ["screen"]`：截取当前显示器画面（说"看看我的屏幕"）
 - `prompt`：分析要求（要提取、回答或判断什么）
+
+例："我复制了一张报错截图，帮我看看" → Agent 自动调用 `grok_vision(images: ["clipboard"])`。
 
 ## 配置
 

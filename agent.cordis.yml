@@ -257,7 +257,13 @@
 # `file:` dependency of the web profile (see install.sh), so the host-base
 # module resolver finds it by name. It registers only into the host `tools`
 # registry and provides no service — no realm needed.
+#
+# The file-path specifier is load-bearing: the host process caches each bare
+# specifier's package resolution (package.json exports) and resolved module,
+# so code updates ship under a fresh specifier (or a host restart) to take
+# effect. Relative specifiers resolve against this composition's directory,
+# so the path below stays portable across machines (DSH_HOME layout).
 - id: dsh-grok-vision
-  name: 'dsh-grok-vision'
+  name: ../../profiles/web/node_modules/dsh-grok-vision/lib/runtime.js
   config:
     grokBin: !!js process.env.GROK_BIN || 'grok'

@@ -4,9 +4,10 @@
   "private": true,
   "description": "Host-level grok_vision tool: local Grok CLI multimodal (image) analysis for every DSH session",
   "type": "module",
-  "main": "lib/index.js",
+  "main": "lib/runtime.js",
   "exports": {
-    ".": "./lib/index.js",
+    ".": "./lib/runtime.js",
+    "./runtime": "./lib/runtime.js",
     "./package.json": "./package.json"
   },
   "peerDependencies": {
