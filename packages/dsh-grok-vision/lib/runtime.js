@@ -62,6 +62,8 @@ const Config = z.object({
   imageTimeoutMs: z.number().default(DEFAULT_IMAGE_TIMEOUT_MS),
   /** Default output directory for generated images. */
   outputDir: z.string().default(DEFAULT_OUTPUT_DIR),
+  /** Persist a .md prompt record beside each generated batch (baoyu reproducibility convention). */
+  savePrompt: z.boolean().default(true),
   /** Optional explicit xAI API key; when unset, the local grok login token is used. */
   xaiApiKey: z.string(),
 });
@@ -564,24 +566,62 @@ async function apply(ctx, config) {
             ? `Follow the style specification below when generating the image.\n\n--- STYLE SPEC START ---\n${await loadStyleSnippet(style)}\n--- STYLE SPEC END ---\n\nContent request: ${prompt}`
             : prompt;
         const key = await resolveXaiKey(resolved.xaiApiKey);
-        return {
-          images: await generateImages(
-            {
-              key,
-              model: resolved.imageModel,
-              prompt: fullPrompt,
-              n: count,
-              aspectRatio,
-              resolution,
-              outputDir: resolved.outputDir,
-              ...(output !== undefined && output.length > 0 ? { output } : {}),
-            },
-            exec.signal,
-          ),
-        };
+        const images = await generateImages(
+          {
+            key,
+            model: resolved.imageModel,
+            prompt: fullPrompt,
+            n: count,
+            aspectRatio,
+            resolution,
+            outputDir: resolved.outputDir,
+            ...(output !== undefined && output.length > 0 ? { output } : {}),
+          },
+          exec.signal,
+        );
+        // Baoyu-style reproducibility record: persist the full final prompt
+        // beside the images so the generation can be replayed or audited.
+        if (resolved.savePrompt) {
+          await writePromptRecord(images, {
+            model: resolved.imageModel,
+            style: style ?? null,
+            aspectRatio,
+            resolution,
+            prompt: fullPrompt,
+          });
+        }
+        return { images };
       },
     }),
   );
+}
+
+/**
+ * Write one prompt record beside the generated images (same basename, .md):
+ * timestamp, generation parameters, and the complete final prompt.
+ */
+async function writePromptRecord(images, record) {
+  const target = images[0];
+  if (target === undefined) return;
+  const mdPath = target.replace(/\.[^.]+$/, "") + ".md";
+  const lines = [
+    "# Image Generation Prompt",
+    "",
+    `- Generated: ${new Date().toISOString()}`,
+    `- Model: ${record.model}`,
+    `- Style: ${record.style ?? "-"}`,
+    `- Aspect ratio: ${record.aspectRatio}`,
+    `- Resolution: ${record.resolution}`,
+    images.length > 0 ? `- Outputs:\n${images.map((p) => `    - ${p}`).join("\n")}` : "",
+    "",
+    "## Prompt",
+    "",
+    record.prompt,
+    "",
+  ];
+  await writeFile(mdPath, lines.join("\n")).catch((error) => {
+    console.error("[tool-grok-vision] failed to write prompt record:", error.message);
+  });
 }
 
 export {

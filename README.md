@@ -48,6 +48,7 @@ Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 - `aspect_ratio`：1:1 / 16:9 / 3:4 / 9:16 等；`resolution`：1k / 2k；`n`：1-4 张
 - `output`（可选）：输出路径，缺省存到 `outputDir`
 - 生图走 x.ai images/generations（`grok-imagine-image`），认证复用本机 grok 登录态（或配置 `xaiApiKey`）
+- **Prompt 记录**（baoyu 可复现约定）：每次生成都会在图片旁保存同名 `.md`，含时间戳、模型、比例、分辨率、输出路径与完整最终 prompt，便于审计与重放
 
 四个风格 skill（`baoyu-cover-image` / `baoyu-infographic` / `baoyu-comic` / `baoyu-xhs-images`）随插件注册为运行时 skill，模型可加载获得完整风格规范。
 
@@ -64,6 +65,7 @@ Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 | `imageModel` | `grok-imagine-image` | 生图模型 |
 | `imageTimeoutMs` | `180000` | 生图调用预算 |
 | `outputDir` | `/tmp/dsh-grok-images` | 生成图片缺省输出目录 |
+| `savePrompt` | `true` | 是否在图片旁保存 `.md` prompt 记录 |
 | `xaiApiKey` | 空（用 grok 登录态） | 显式 xAI API Key |
 
 ## 代码更新
