@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 将 standard-grok preset 安装到本机 DSH：
 #   1. 复制 preset 到 ~/.dsh/.agent-presets/standard-grok（DSH 的预设扫描不跟随软链，必须真实目录）
-#   2. 将 packages/dsh-tool-grok-vision 登记为 web profile 的 file: 依赖
+#   2. 将 packages/dsh-grok-vision 登记为 web profile 的 file: 依赖
 #   3. 将默认预设设为 standard-grok（写入或替换 ~/.dsh/settings.yaml 中的 agent-presets.default）
 #
 # 幂等：可反复执行。修改本仓库后重跑本脚本即完成同步。
@@ -28,7 +28,7 @@ cp "$REPO_DIR/agent.cordis.yml" "$REPO_DIR/preset.yml" "$PRESET_DIR/"
 
 echo "==> 2/3 登记插件包为 web profile 依赖"
 cd "$PROFILE_DIR"
-pnpm add "dsh-grok-vision@file:$REPO_DIR/packages/dsh-tool-grok-vision"
+pnpm add "dsh-grok-vision@file:$REPO_DIR/packages/dsh-grok-vision"
 
 echo "==> 3/3 设置默认预设"
 python3 - "$SETTINGS" <<'PYEOF'

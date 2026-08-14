@@ -253,7 +253,7 @@
 # ── grok vision ─────────────────────────────────────────────────────────────
 
 # Multimodal analysis through the local Grok CLI. The package ships inside
-# this repository (`packages/dsh-tool-grok-vision`) and is installed as a
+# this repository (`packages/dsh-grok-vision`) and is installed as a
 # `file:` dependency of the web profile (see install.sh), so the host-base
 # module resolver finds it by name. It registers only into the host `tools`
 # registry and provides no service — no realm needed.
