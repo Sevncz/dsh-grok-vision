@@ -28,7 +28,7 @@ cp "$REPO_DIR/agent.cordis.yml" "$REPO_DIR/preset.yml" "$PRESET_DIR/"
 
 echo "==> 2/3 登记插件包为 web profile 依赖"
 cd "$PROFILE_DIR"
-pnpm add "dsh-tool-grok-vision@file:$REPO_DIR/packages/dsh-tool-grok-vision"
+pnpm add "dsh-grok-vision@file:$REPO_DIR/packages/dsh-tool-grok-vision"
 
 echo "==> 3/3 设置默认预设"
 python3 - "$SETTINGS" <<'PYEOF'

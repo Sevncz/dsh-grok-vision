@@ -1,12 +1,12 @@
 {
-  "name": "dsh-tool-grok-vision",
+  "name": "dsh-grok-vision",
   "version": "0.1.0",
   "private": true,
   "description": "Host-level grok_vision tool: local Grok CLI multimodal (image) analysis for every DSH session",
   "type": "module",
-  "main": "index.js",
+  "main": "lib/index.js",
   "exports": {
-    ".": "./index.js",
+    ".": "./lib/index.js",
     "./package.json": "./package.json"
   },
   "peerDependencies": {

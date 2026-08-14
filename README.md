@@ -9,15 +9,15 @@ DeepSeek Harness（DSH）的 agent preset：**标准模式 + 本地 Grok 多模�
 ```
 agent.cordis.yml                    # preset 组成：standard 全量 + tool-grok-vision 行
 preset.yml                          # 显示名与描述
-packages/dsh-tool-grok-vision/      # 插件包：注册 grok_vision 工具
-  index.js
+packages/dsh-tool-grok-vision/      # 插件包（npm 名 dsh-grok-vision）：注册 grok_vision 工具
+  lib/index.js
   package.json
 install.sh                          # 一键安装到本机 DSH
 ```
 
 ## 工作原理
 
-- preset 行 `name: 'dsh-tool-grok-vision'` 从 DSH 宿主 profile 的模块基址解析（web profile 的 node_modules 链），所以插件包只需作为 profile 的 `file:` 依赖安装一次。
+- preset 行 `name: 'dsh-grok-vision'` 从 DSH 宿主 profile 的模块基址解析（web profile 的 node_modules 链），所以插件包只需作为 profile 的 `file:` 依赖安装一次。
 - preset 在每次会话创建时挂载：安装或修改后**新会话立即生效，无需重启宿主进程**。
 - 插件只注册进宿主的 `tools` 注册表，不发布任何 Service，因此 preset 内无需 isolate realm。
 
