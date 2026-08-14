@@ -258,12 +258,13 @@
 # module resolver finds it by name. It registers only into the host `tools`
 # registry and provides no service — no realm needed.
 #
-# The file-path specifier is load-bearing: the host process caches each bare
-# specifier's package resolution (package.json exports) and resolved module,
-# so code updates ship under a fresh specifier (or a host restart) to take
-# effect. Relative specifiers resolve against this composition's directory,
-# so the path below stays portable across machines (DSH_HOME layout).
+# Cache note: the host process caches each bare specifier's package
+# resolution and module instance for its lifetime. After changing THIS
+# PACKAGE'S code, either restart the host once, or point this row at the
+# exported `dsh-grok-vision/runtime` subpath (a fresh specifier) so the new
+# code loads without a restart. The bare name keeps the plugin inventory
+# card tidy ("grok-vision").
 - id: dsh-grok-vision
-  name: ../../profiles/web/node_modules/dsh-grok-vision/lib/runtime.js
+  name: 'dsh-grok-vision'
   config:
     grokBin: !!js process.env.GROK_BIN || 'grok'
