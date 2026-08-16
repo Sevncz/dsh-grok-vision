@@ -4,16 +4,11 @@
 
 ## 布局（Layout，选一并在 prompt 写明）
 
-bento-grid（便当盒网格）、comparison-matrix（对比矩阵）、binary-comparison（双栏对比）、funnel（漏斗）、hierarchical-layers（层级塔）、hub-spoke（枢纽辐射）、tree-branching（树状分支）、linear-progression（线性进程）、timeline（时间线）、iceberg（冰山）、dashboard（仪表盘）、comic-strip（连环画式）、periodic-table（周期表式）、story-mountain（故事山）
+bento-grid、comparison-matrix、binary-comparison、funnel、hierarchical-layers、hub-spoke、tree-branching、linear-progression、structural-breakdown、iceberg、dashboard、comic-strip、periodic-table、story-mountain、jigsaw、venn-diagram、winding-roadmap、circular-flow、dense-modules、bridge、isometric-map
 
 ## 样式（Style，选一）
 
-- flat-corporate：扁平商务，蓝灰主色，几何图标
-- minimal：极简，大留白，细线条，黑白 + 单点缀色
-- isometric：等轴测立体块，科技感
-- hand-drawn：手绘线条 + 淡彩
-- editorial：杂志编辑风，衬线标题 + 网格排版
-- dashboard-dark：深色仪表盘，霓虹点缀
+craft-handmade、claymation、kawaii、storybook-watercolor、chalkboard、cyberpunk-neon、bold-graphic、aged-academia、corporate-memphis、technical-schematic、origami、pixel-art、ui-wireframe、subway-map、ikea-manual、knolling、lego-brick、pop-laboratory、morandi-journal、retro-pop-grid、hand-drawn-edu、retro-popup-pop
 
 ## 核心原则
 

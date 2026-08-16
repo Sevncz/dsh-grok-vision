@@ -1,5 +1,7 @@
-import { existsSync, readdirSync, readFileSync } from "fs";
-import { join, basename } from "path";
+import { spawnSync } from "child_process";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { basename, join } from "path";
 import { PDFDocument } from "pdf-lib";
 
 interface PageInfo {
@@ -37,7 +39,7 @@ function findComicPages(dir: string): PageInfo[] {
   }
 
   const files = readdirSync(dir);
-  const pagePattern = /^(\d+)-(cover|page)(-[\w-]+)?\.(png|jpg|jpeg)$/i;
+  const pagePattern = /^(\d+)-(cover|page)(-[\w-]+)?\.(png|jpg|jpeg|webp)$/i;
   const promptsDir = join(dir, "prompts");
   const hasPrompts = existsSync(promptsDir);
 
@@ -45,7 +47,7 @@ function findComicPages(dir: string): PageInfo[] {
     .filter((f) => pagePattern.test(f))
     .map((f) => {
       const match = f.match(pagePattern);
-      const baseName = f.replace(/\.(png|jpg|jpeg)$/i, "");
+      const baseName = f.replace(/\.(png|jpg|jpeg|webp)$/i, "");
       const promptPath = hasPrompts ? join(promptsDir, `${baseName}.md`) : undefined;
 
       return {
@@ -66,34 +68,47 @@ function findComicPages(dir: string): PageInfo[] {
   return pages;
 }
 
+function bytesOf(page: PageInfo): Uint8Array {
+  if (!page.filename.toLowerCase().endsWith(".webp")) {
+    return readFileSync(page.path);
+  }
+  if (process.platform !== "darwin") {
+    throw new Error(`${page.filename} is webp; convert to png/jpg before merging`);
+  }
+  const dir = mkdtempSync(join(tmpdir(), "comic-webp-"));
+  const dest = join(dir, "page.png");
+  try {
+    const result = spawnSync("sips", ["-s", "format", "png", page.path, "--out", dest], {
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new Error(`sips failed to convert ${page.filename}: ${result.stderr}`);
+    }
+    return readFileSync(dest);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function isJpeg(bytes: Uint8Array): boolean {
+  return bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8;
+}
+
 async function createPdf(pages: PageInfo[], outputPath: string) {
   const pdfDoc = await PDFDocument.create();
   pdfDoc.setAuthor("baoyu-comic");
   pdfDoc.setSubject("Generated Comic");
 
   for (const page of pages) {
-    const imageData = readFileSync(page.path);
-    const ext = page.filename.toLowerCase();
-    const image = ext.endsWith(".png")
-      ? await pdfDoc.embedPng(imageData)
-      : await pdfDoc.embedJpg(imageData);
-
+    const imageData = bytesOf(page);
+    const image = isJpeg(imageData) ? await pdfDoc.embedJpg(imageData) : await pdfDoc.embedPng(imageData);
     const { width, height } = image;
     const pdfPage = pdfDoc.addPage([width, height]);
-
-    pdfPage.drawImage(image, {
-      x: 0,
-      y: 0,
-      width,
-      height,
-    });
-
+    pdfPage.drawImage(image, { x: 0, y: 0, width, height });
     console.log(`Added: ${page.filename}${page.promptPath ? " (prompt available)" : ""}`);
   }
 
-  const pdfBytes = await pdfDoc.save();
-  await Bun.write(outputPath, pdfBytes);
-
+  writeFileSync(outputPath, await pdfDoc.save());
   console.log(`\nCreated: ${outputPath}`);
   console.log(`Total pages: ${pages.length}`);
 }

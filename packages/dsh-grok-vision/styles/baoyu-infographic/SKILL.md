@@ -27,7 +27,9 @@ Concrete `AskUserQuestion` references below are examples — substitute the loca
 
 - 把最终 prompt 传给 `grok_generate_image` 的 `prompt` 参数；
 - `style` 参数填 `infographic`（工具会附带本技能的样式规范）；
-- `aspect_ratio` 按本技能要求填（支持 16:9 或按布局要求）；
+- `aspect_ratio` 按本技能要求填（16:9 / 9:16 / 1:1 / 2.35:1 或任意 W:H）；
+- 参考图走 `ref`（最多 3 张工作区路径），不要传 `--ref`；
+- `output` 填本技能约定路径（父目录由工具创建）；
 - 一次可生成多张（`n`，默认 1），生成后返回本地文件路径，可用 read_image / grok_vision 检查效果。
 
 ⚠️ 本文件后续步骤中提到的 Codex `imagegen`、`baoyu-image-gen` 脚本等其他后端在本环境不存在，一律忽略，统一使用 `grok_generate_image`。
@@ -60,7 +62,7 @@ references:
 
 **At generation time**:
 - Verify each referenced file exists on disk
-- If `usage: direct` AND the chosen backend accepts reference images (e.g., `baoyu-image-gen` via `--ref`) → pass the file via the backend's ref parameter
+- If `usage: direct` → pass the file via `grok_generate_image` `ref` (up to 3 paths)
 - Otherwise → embed extracted `style`/`palette` traits in the prompt text
 
 ## Confirmation Policy

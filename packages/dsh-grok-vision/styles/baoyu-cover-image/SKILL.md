@@ -27,7 +27,9 @@ Concrete `AskUserQuestion` references below are examples — substitute the loca
 
 - 把最终 prompt 传给 `grok_generate_image` 的 `prompt` 参数；
 - `style` 参数填 `cover`（工具会附带本技能的样式规范）；
-- `aspect_ratio` 按本技能要求填（支持 1:1 / 16:9 / 2.35:1（按类型选择））；
+- `aspect_ratio` 按本技能要求填（支持 1:1 / 16:9 / 2.35:1（按类型选择）以及任意 W:H）；
+- 参考图走 `ref`（最多 3 张工作区路径），不要传 `--ref`；
+- `output` 填本技能约定路径（父目录由工具创建）；
 - 一次可生成多张（`n`，默认 1），生成后返回本地文件路径，可用 read_image / grok_vision 检查效果。
 
 ⚠️ 本文件后续步骤中提到的 Codex `imagegen`、`baoyu-image-gen` 脚本等其他后端在本环境不存在，一律忽略，统一使用 `grok_generate_image`。
@@ -165,7 +167,7 @@ Check EXTEND.md in priority order — the first one found wins:
 
 If reference images contain **people** who should appear in the cover:
 
-- **Model supports `--ref`** (default): Copy image to `refs/`, pass via `--ref` at generation. No description file needed — the model sees the face directly.
+- **Model supports `ref`** (this backend): Copy image to `refs/`, pass via `grok_generate_image` `ref` at generation. No description file needed — the model sees the face directly.
 - **Model does NOT support `--ref`** (Jimeng, Seedream 3.0): Create `refs/ref-NN-{slug}.md` with per-character description (hair, glasses, skin tone, clothing). Embed as MUST/REQUIRED instructions in prompt text.
 
 See [reference-images.md](references/workflow/reference-images.md) for full decision table.
@@ -200,7 +202,7 @@ Save to `prompts/cover.md`. Template: [references/workflow/prompt-template.md](r
 2. **Select backend** via the `## Image Generation Tools` rule at the top: use whatever is available; if multiple, ask the user once. Do this once per session before any generation.
 3. **Write the full final prompt** to `prompts/01-cover-[slug].md` (hard requirement) BEFORE invoking the backend.
 4. **Process references** from prompt frontmatter:
-   - `direct` usage → pass via `--ref` (use ref-capable backend)
+   - `direct` usage → pass via `grok_generate_image` `ref` (up to 3 paths)
    - `style`/`palette` → extract traits, append to prompt
 5. **Generate**: Call the chosen backend with the prompt file, output path, aspect ratio.
    - **`codex-imagegen`**: see [references/codex-imagegen.md](references/codex-imagegen.md) for the invocation contract (preferred `baoyu-image-gen --provider codex-cli` path, runtime wrapper discovery, parameter notes, stdout schema, batch semantics).

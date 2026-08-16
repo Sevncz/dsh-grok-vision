@@ -27,7 +27,9 @@ Concrete `AskUserQuestion` references below are examples — substitute the loca
 
 - 把最终 prompt 传给 `grok_generate_image` 的 `prompt` 参数；
 - `style` 参数填 `xhs`（工具会附带本技能的样式规范）；
-- `aspect_ratio` 按本技能要求填（支持 3:4（小红书标准）或按元素要求）；
+- `aspect_ratio` 按本技能要求填（3:4 小红书标准，或按元素要求）；
+- 参考图走 `ref`（最多 3 张工作区路径），不要传 `--ref`；
+- `output` 填本技能约定路径（父目录由工具创建）；
 - 一次可生成多张（`n`，默认 1），生成后返回本地文件路径，可用 read_image / grok_vision 检查效果。
 
 ⚠️ 本文件后续步骤中提到的 Codex `imagegen`、`baoyu-image-gen` 脚本等其他后端在本环境不存在，一律忽略，统一使用 `grok_generate_image`。
@@ -264,7 +266,7 @@ references:
     usage: direct
 ```
 
-At generation time: verify files exist. Image 1 with `usage: direct` + backend that accepts refs → pass via the backend's ref parameter (becomes the chain anchor). Images 2+ keep using image-1 as `--ref` per Step 3 — do NOT re-stack user refs on top (avoids conflicting signals). For `style`/`palette`, embed extracted traits in every prompt.
+At generation time: verify files exist. Image 1 with `usage: direct` → pass via `grok_generate_image` `ref`. Images 2+ keep using image-1 as `ref` per Step 3 — do NOT re-stack user refs on top (avoids conflicting signals). For `style`/`palette`, embed extracted traits in every prompt.
 
 ## File Layout
 
@@ -354,13 +356,13 @@ Then ask one question — three paths. Verbatim option copy: `references/confirm
 
 With confirmed outline + style + layout + palette:
 
-**Visual consistency — image-1 anchor chain**: character / mascot / color rendering drifts between calls unless you anchor them. Generate image 1 (cover) first WITHOUT `--ref`, then pass image 1 as `--ref` to every subsequent image. This is the single most important consistency trick for this skill — don't skip it even if the backend also supports a session ID.
+**Visual consistency — image-1 anchor chain**: character / mascot / color rendering drifts between calls unless you anchor them. Generate image 1 (cover) first WITHOUT `ref`, then pass image 1 as `grok_generate_image` `ref` to every subsequent image. This is the single most important consistency trick for this skill.
 
 Generation flow:
 
 1. Write the full prompt for every image to `prompts/NN-{type}-{slug}.md` in the user's preferred language (backup rule applies), then verify all selected prompt files exist.
-2. Generate **image 1** first without `--ref`; backup rule applies to the PNG file. This establishes the anchor.
-3. Build a task list for **images 2+** using image 1 as `--ref <path-to-image-01.png>`.
+2. Generate **image 1** first without `ref`; backup rule applies to the PNG file. This establishes the anchor.
+3. Build a task list for **images 2+** using image 1 as `ref: ["<path-to-image-01.png>"]`.
 4. Dispatch images 2+ in batches per the `## Batch Generation Policy`: backend native batch first, runtime parallel tool calls second, sequential only as fallback.
 5. Report progress after each completed image. On failure, retry only the failed item once from the same saved prompt file.
 

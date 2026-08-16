@@ -1,14 +1,30 @@
 {
   "name": "dsh-grok-vision",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Host-level grok_vision tool: local Grok CLI multimodal (image) analysis for every DSH session",
   "type": "module",
   "main": "lib/runtime.js",
+  "files": [
+    "lib",
+    "styles",
+    "cordis.patch.yml"
+  ],
   "exports": {
     ".": "./lib/runtime.js",
     "./runtime": "./lib/runtime.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
+  },
+  "scripts": {
+    "link-host-peers": "node scripts/link-host-peers.mjs",
+    "check-import": "node scripts/check-import.mjs",
+    "test": "node scripts/check-import.mjs"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

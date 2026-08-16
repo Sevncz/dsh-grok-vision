@@ -1,0 +1,8 @@
+# dsh-grok-vision bundle patch. Applied when a profile lists this package
+# in dsh.profile.bundles. Users override this row by id in their own
+# cordis.patch.yml (must restate the whole config).
+- insert:
+    - id: dsh-grok-vision
+      name: dsh-grok-vision
+      config:
+        grokBin: !!js process.env.GROK_BIN || 'grok'

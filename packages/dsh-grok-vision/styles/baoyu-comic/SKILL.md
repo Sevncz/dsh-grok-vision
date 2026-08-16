@@ -31,7 +31,9 @@ Concrete `AskUserQuestion` references below are examples — substitute the loca
 
 - 把最终 prompt 传给 `grok_generate_image` 的 `prompt` 参数；
 - `style` 参数填 `comic`（工具会附带本技能的样式规范）；
-- `aspect_ratio` 按本技能要求填（支持 16:9 或按分镜布局要求）；
+- `aspect_ratio` 按本技能要求填（默认 3:4，或按分镜布局）；
+- 参考图走 `ref`（最多 3 张工作区路径，角色表 + 用户参考图），不要传 `--ref`；
+- `output` 填本技能约定路径（父目录由工具创建）；
 - 一次可生成多张（`n`，默认 1），生成后返回本地文件路径，可用 read_image / grok_vision 检查效果。
 
 ⚠️ 本文件后续步骤中提到的 Codex `imagegen`、`baoyu-image-gen` 脚本等其他后端在本环境不存在，一律忽略，统一使用 `grok_generate_image`。
@@ -81,8 +83,7 @@ references:
 
 **At generation time**:
 - Verify each referenced file exists on disk
-- If `usage: direct` AND the chosen backend accepts multiple reference images → pass both the character sheet (Step 7.2) and the user refs via the backend's ref parameter; compress images first per Step 7.1's guidance to avoid payload failures
-- If the backend accepts only one ref → prefer the character sheet for pages with recurring characters; embed user-ref traits in the prompt body instead
+- If `usage: direct` → pass the character sheet (Step 7.2) and user refs via `grok_generate_image` `ref` (max 3; prefer the sheet if you must drop extras); compress images first per Step 7.1's guidance to avoid payload failures
 - For `style`/`palette` usage → embed extracted traits in every page's prompt text (applies regardless of backend capability)
 
 ## Options
@@ -137,6 +138,7 @@ Details: [references/partial-workflows.md](references/partial-workflows.md)
 2. Script path = `{baseDir}/scripts/<script-name>.ts`
 3. Replace all `{baseDir}` in this document with the actual path
 4. Resolve `${BUN_X}` runtime: if `bun` installed → `bun`; if `npx` available → `npx -y bun`; else suggest installing bun
+5. First run in `{baseDir}/scripts`: `${BUN_X} install` (needs `pdf-lib`)
 
 **Script Reference**:
 | Script | Purpose |
@@ -195,7 +197,7 @@ Comic Progress:
 - [ ] Step 6: Review prompts (conditional)
 - [ ] Step 7: Generate images
   - [ ] 7.1 Generate character sheet (if needed) → characters/characters.png
-  - [ ] 7.2 Generate pages (with --ref if character sheet exists)
+  - [ ] 7.2 Generate pages (with `ref` if character sheet exists)
 - [ ] Step 8: Merge to PDF
 - [ ] Step 9: Completion report
 ```
@@ -241,17 +243,16 @@ Analyze → [Check Existing?] → [Confirm: Style + Reviews] → Storyboard → 
 
 **7.2 Pages** — each page's prompt MUST already be at `prompts/NN-{cover|page}-[slug].md` before invoking the backend; the file is the reproducibility record. Strategy depends on the character sheet:
 
-| Character sheet | Backend `--ref` | Strategy |
-|-----------------|-----------------|----------|
-| Exists | Supported | Pass sheet as `--ref` on every page |
-| Exists | Not supported | Prepend character descriptions to every prompt file |
-| Skipped | — | All descriptions inline in prompt |
+| Character sheet | Strategy |
+|-----------------|----------|
+| Exists | Pass sheet as `grok_generate_image` `ref` on every page (max 3 paths with any user refs) |
+| Skipped | All descriptions inline in prompt |
 
 **Execution strategy**: Generate the character sheet first when needed. Then build the selected page task list from saved prompt files and dispatch pages in batches per the `## Batch Generation Policy`: backend native batch first, runtime parallel tool calls second, sequential only as fallback. `--regenerate N` and `--images-only` apply the same batching rules to the selected existing prompts.
 
 **Backup rule**: existing `prompts/…md` and `…png` files → rename with `-backup-YYYYMMDD-HHMMSS` suffix before regenerating. Aspect ratio from storyboard (default `3:4`; preset may override).
 
-**`--ref` failure recovery**: compress sheet → retry → still fails → drop `--ref` and embed character descriptions in the prompt text.
+**`ref` failure recovery**: compress sheet → retry → still fails → drop `ref` and embed character descriptions in the prompt text.
 
 Full step-by-step workflow (analysis, storyboard, review gates, regeneration variants): [references/workflow.md](references/workflow.md).
 
@@ -320,7 +321,7 @@ Text correction policy:
 - **Step 2 confirmation required** - do not skip
 - **Steps 4/6 conditional** - only if user requested in Step 2
 - **Step 7.1 character sheet** - recommended for multi-page comics, optional for simple presets
-- **Step 7.2 character reference** - use `--ref` if sheet exists; compress/convert on failure; fall back to prompt-only
+- **Step 7.2 character reference** - use `ref` if sheet exists; compress/convert on failure; fall back to prompt-only
 - Watermark/language configured once in EXTEND.md
 
 ## Changing Preferences

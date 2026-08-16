@@ -1,48 +1,82 @@
 #!/usr/bin/env bash
-# 将 dsh-grok-vision 安装为本机 DSH 的宿主级插件：
-#   1. 将 packages/dsh-grok-vision 登记为 web profile 的 file: 依赖
-#   2. 在 profile 的 cordis.patch.yml 写入宿主行（幂等）
-# 宿主层行在 DSH 启动时读取：安装完成后重启一次宿主即生效。
+# Install this package as a DSH bundle into the web profile:
+#   dsh plugin --profile web add ./packages/dsh-grok-vision
+# That is the official path (docs/user/develop/basic/publish.zh.md):
+#   link: the checkout, then append dsh.profile.bundles because we declare dsh.bundle.
+# Also strips a leftover host-row we used to write into the user's cordis.patch.yml
+# (that row would double-load the plugin after the bundle layer exists).
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PKG_DIR="$REPO_DIR/packages/dsh-grok-vision"
 DSH_HOME="${DSH_HOME:-$HOME/.dsh}"
-PROFILE_DIR="$DSH_HOME/profiles/web"
+PROFILE="${DSH_PROFILE:-web}"
+PROFILE_DIR="$DSH_HOME/profiles/$PROFILE"
 PATCH="$PROFILE_DIR/cordis.patch.yml"
 
-if [ ! -d "$PROFILE_DIR" ]; then
-  echo "错误：未找到 DSH web profile 目录 $PROFILE_DIR" >&2
+if [ ! -d "$PKG_DIR" ]; then
+  echo "错误：未找到插件包 $PKG_DIR" >&2
   exit 1
 fi
-command -v pnpm >/dev/null 2>&1 || { echo "错误：未找到 pnpm" >&2; exit 1; }
 
-echo "==> 1/2 登记插件包为 web profile 依赖"
-cd "$PROFILE_DIR"
-pnpm add "dsh-grok-vision@file:$REPO_DIR/packages/dsh-grok-vision"
+if command -v dsh >/dev/null 2>&1; then
+  DSH=(dsh)
+else
+  command -v npx >/dev/null 2>&1 || { echo "错误：未找到 dsh 或 npx" >&2; exit 1; }
+  DSH=(npx --yes @deepseek-ai/dsh)
+fi
 
-echo "==> 2/2 写入宿主行"
+echo "==> 1/3 dsh plugin --profile $PROFILE add $PKG_DIR"
+# Relative specs are anchored to the invoking cwd; run from the repo so `.` is this checkout.
+"${DSH[@]}" plugin --profile "$PROFILE" add "$PKG_DIR"
+echo "    提示：pnpm 的 missing peer warning 属预期（见 README「安装」），忽略即可"
+
+echo "==> 2/3 把宿主 peer 链到本包 node_modules（link: 从 checkout realpath 解析）"
+if [ ! -e "$DSH_HOME/profiles/node_modules/@deepseek-ai/schemastery" ]; then
+  echo "    profiles/node_modules 尚未愈合，先跑一次 --dump-config"
+  "${DSH[@]}" --profile "$PROFILE" --dump-config >/dev/null
+fi
+node "$PKG_DIR/scripts/link-host-peers.mjs"
+
+echo "==> 3/3 去掉用户 patch 里旧的手写宿主行（若有）"
 python3 - "$PATCH" <<'PYEOF'
-import sys, os
+import os
+import re
+import sys
+
 path = sys.argv[1]
-text = open(path).read() if os.path.exists(path) else "[]\n"
-if "id: dsh-grok-vision" in text:
-    print("    宿主行已存在，跳过")
-else:
-    entry = """
-# Host-level grok_vision tool: registered once at startup, visible to EVERY
-# session regardless of agent preset (including pre-existing sessions).
-- insert:
-    - id: dsh-grok-vision
-      name: 'dsh-grok-vision'
-      config:
-        grokBin: !!js process.env.GROK_BIN || 'grok'
+if not os.path.exists(path):
+    print("    无用户 patch，跳过")
+    raise SystemExit(0)
+
+text = open(path).read()
+if "id: dsh-grok-vision" not in text:
+    print("    用户 patch 无旧宿主行，跳过")
+    raise SystemExit(0)
+
+# Drop the insert list item whose id is dsh-grok-vision, plus the comment we used to write above it.
+pattern = re.compile(
+    r"(?:^# (?:Host-level grok_vision|dsh-grok-vision host tools).*\n)*"
+    r"- insert:\n"
+    r"(?:    .*\n)*"
+    r"    - id: dsh-grok-vision\n"
+    r"(?:      .*\n)*",
+    re.M,
+)
+new, n = pattern.subn("", text, count=1)
+if n == 0:
+    print("    未能解析旧宿主行，请手工从 cordis.patch.yml 删掉 id: dsh-grok-vision", file=sys.stderr)
+    raise SystemExit(1)
+
+stripped = re.sub(r"(?m)^\s*#.*$", "", new).strip()
+if stripped in ("", "[]"):
+    new = """# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; `!!js` expressions allowed).
+[]
 """
-    if "[]" in text:
-        text = text.replace("[]", entry, 1)
-    else:
-        text = text.rstrip() + "\n" + entry
-    open(path, "w").write(text)
-    print("    已写入宿主行")
+open(path, "w").write(new)
+print("    已移除旧宿主行（改由组合包层插入）")
 PYEOF
 
-echo "完成。重启 DSH 后，所有会话（含旧会话、任意预设）自动获得 grok_vision。"
+echo "完成。重启 DSH（npx @deepseek-ai/dsh web）。可用 dsh --profile $PROFILE --dump-config 确认存在 # == dsh-grok-vision 层。"
