@@ -72,10 +72,10 @@ Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 | 项 | 默认 | 说明 |
 | --- | --- | --- |
 | `grokBin` | `process.env.GROK_BIN \|\| 'grok'` | 本地 Grok 可执行文件 |
-| `timeoutMs` | `120000` | 读图调用预算 |
+| `timeoutMs` | `120000` | 读图调用预算（复杂分析建议 600000） |
 | `maxImageBytes` | `8388608`（8 MiB） | 单图大小上限 |
 | `maxImages` | `4` | 单次图片数上限 |
-| `maxTurns` | `2` | 传给 grok CLI 的 `--max-turns`（`1` 时带图请求会偶发 `max turns reached`） |
+| `maxTurns` | `4` | 传给 grok CLI 的 `--max-turns`（`1` 时带图请求会偶发、`2` 时复杂分析请求会 `max turns reached`） |
 | `imageModel` | `grok-imagine-image` | 生图模型 |
 | `imageTimeoutMs` | `180000` | 生图调用预算 |
 | `outputDir` | `/tmp/dsh-grok-images` | 生成图片缺省输出目录 |
