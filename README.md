@@ -75,7 +75,7 @@ Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 | `timeoutMs` | `120000` | 读图调用预算（复杂分析建议 600000） |
 | `maxImageBytes` | `8388608`（8 MiB） | 单图大小上限 |
 | `maxImages` | `4` | 单次图片数上限 |
-| `maxTurns` | `8` | 传给 grok CLI 的 `--max-turns`（agent 圈数；复杂像素级验证建议 ≥ 8，`1` 时带图请求会偶发、`2` 时复杂分析请求会 `max turns reached`） |
+| `maxTurns` | `20` | 传给 grok CLI 的 `--max-turns`（agent 圈数上限，不是目标；模型一般 1-4 圈就完成，复杂像素级验证需要多圈，`1` 时带图请求会偶发、`2` 时复杂分析请求会 `max turns reached`） |
 | `imageModel` | `grok-imagine-image` | 生图模型 |
 | `imageTimeoutMs` | `180000` | 生图调用预算 |
 | `outputDir` | `/tmp/dsh-grok-images` | 生成图片缺省输出目录 |
