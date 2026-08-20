@@ -15,6 +15,7 @@ const inject = ["tools", "systemPrompt"];
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const DEFAULT_MAX_IMAGES = 4;
+const DEFAULT_MAX_TURNS = 2;
 const DEFAULT_IMAGE_TIMEOUT_MS = 180000;
 const DEFAULT_OUTPUT_DIR = "/tmp/dsh-grok-images";
 const MAX_STDOUT_BYTES = 4 * 1024 * 1024;
@@ -42,6 +43,7 @@ const Config = z.object({
   timeoutMs: z.number().default(DEFAULT_TIMEOUT_MS),
   maxImageBytes: z.number().default(DEFAULT_MAX_IMAGE_BYTES),
   maxImages: z.number().default(DEFAULT_MAX_IMAGES),
+  maxTurns: z.number().default(DEFAULT_MAX_TURNS),
   imageModel: z.string().default("grok-imagine-image"),
   imageTimeoutMs: z.number().default(DEFAULT_IMAGE_TIMEOUT_MS),
   outputDir: z.string().default(DEFAULT_OUTPUT_DIR),
@@ -170,7 +172,7 @@ async function readImageBlock(imagePath, maxImageBytes) {
   return { type: "image", data: data.toString("base64"), mimeType };
 }
 
-function runGrok(grokBin, promptFile, timeoutMs, signal) {
+function runGrok(grokBin, promptFile, timeoutMs, signal, maxTurns) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(
       grokBin,
@@ -182,7 +184,7 @@ function runGrok(grokBin, promptFile, timeoutMs, signal) {
         "--no-subagents",
         "--verbatim",
         "--max-turns",
-        "1",
+        String(maxTurns),
         "--permission-mode",
         "dontAsk",
         "--disable-web-search",
@@ -457,6 +459,7 @@ async function apply(ctx, config) {
   assertPositiveInteger("timeoutMs", resolved.timeoutMs);
   assertPositiveInteger("maxImageBytes", resolved.maxImageBytes);
   assertPositiveInteger("maxImages", resolved.maxImages);
+  assertPositiveInteger("maxTurns", resolved.maxTurns);
   assertPositiveInteger("imageTimeoutMs", resolved.imageTimeoutMs);
 
   await registerStyleSkills(ctx);
@@ -533,7 +536,7 @@ async function apply(ctx, config) {
 
           const promptFile = join(workDir, "prompt.json");
           await writeFile(promptFile, JSON.stringify(blocks));
-          const stdout = await runGrok(resolved.grokBin, promptFile, resolved.timeoutMs, exec.signal);
+          const stdout = await runGrok(resolved.grokBin, promptFile, resolved.timeoutMs, exec.signal, resolved.maxTurns);
           return parseGrokOutput(stdout);
         } finally {
           await rm(workDir, { recursive: true, force: true }).catch(() => {});
