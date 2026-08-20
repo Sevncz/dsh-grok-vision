@@ -80,7 +80,22 @@ Agent 需要看图时自动调用 `grok_vision`，图片来源有三种：
 | `imageTimeoutMs` | `180000` | 生图调用预算 |
 | `outputDir` | `/tmp/dsh-grok-images` | 生成图片缺省输出目录 |
 | `savePrompt` | `true` | 是否在图片旁保存 `.md` prompt 记录 |
-| `xaiApiKey` | 空（用 `XAI_API_KEY` 或 grok 登录态） | 显式 xAI API Key |
+| `xaiApiKey` | 空（用 `XAI_API_KEY`、DSH 凭据或 grok 登录态） | 显式 xAI API Key |
+
+## 认证优先级
+
+`grok_vision` 读图与 `grok_generate_image` 生图统一按此顺序取 key：
+
+1. `xaiApiKey` 配置（显式）
+2. **DSH 凭据系统**：`$DSH_HOME/.credentials.yaml` 中的 `XAI_API_KEY`（其次环境变量，DSH 凭据本地提供方自带 env 层）
+3. `~/.grok/auth.json` 登录态（仅生图直连与 CLI 兜底）
+
+把 key 交给 DSH 管理（推荐，改 key 无需重启）：
+
+```yaml
+# ~/.dsh/.credentials.yaml
+XAI_API_KEY: sk-...
+```
 
 ## 代码更新
 

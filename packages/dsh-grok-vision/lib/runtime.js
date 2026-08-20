@@ -2,6 +2,7 @@
 // so every session that mounts this package can see both tools.
 import z from "@deepseek-ai/schemastery";
 import { defineTool } from "@deepseek-ai/dsh-tools";
+import { credentialRef } from "@deepseek-ai/dsh-credentials";
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -10,7 +11,7 @@ import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node
 import { fileURLToPath } from "node:url";
 
 const name = "tool-grok-vision";
-const inject = ["tools", "systemPrompt"];
+const inject = ["tools", "systemPrompt", "credentials"];
 
 const DEFAULT_TIMEOUT_MS = 120000;
 const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -172,7 +173,7 @@ async function readImageBlock(imagePath, maxImageBytes) {
   return { type: "image", data: data.toString("base64"), mimeType };
 }
 
-function runGrok(grokBin, promptFile, timeoutMs, signal, maxTurns) {
+function runGrok(grokBin, promptFile, timeoutMs, signal, maxTurns, xaiKey) {
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(
       grokBin,
@@ -189,7 +190,11 @@ function runGrok(grokBin, promptFile, timeoutMs, signal, maxTurns) {
         "dontAsk",
         "--disable-web-search",
       ],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      {
+        stdio: ["ignore", "pipe", "pipe"],
+        // DSH-managed key overrides the CLI's own ~/.grok login when present.
+        env: xaiKey ? { ...process.env, XAI_API_KEY: xaiKey } : process.env,
+      },
     );
     let stdout = "";
     let stderr = "";
@@ -269,8 +274,14 @@ function isFreshAuthEntry(entry, now) {
   return Number.isFinite(expires) && expires > now + 30_000;
 }
 
-async function resolveXaiKey(explicit) {
+async function resolveXaiKey(explicit, ctx) {
   if (explicit !== undefined && explicit.length > 0) return explicit;
+  // DSH credential store ($DSH_HOME/.credentials.yaml, then env layers) — no
+  // restart needed on change, and env is part of its resolution order.
+  if (ctx?.credentials) {
+    const hit = await ctx.credentials.resolve(credentialRef("XAI_API_KEY"));
+    if (hit?.value && hit.value.length > 0) return hit.value;
+  }
   const envKey = process.env.XAI_API_KEY;
   if (typeof envKey === "string" && envKey.length > 0) return envKey;
   let auth;
@@ -536,7 +547,20 @@ async function apply(ctx, config) {
 
           const promptFile = join(workDir, "prompt.json");
           await writeFile(promptFile, JSON.stringify(blocks));
-          const stdout = await runGrok(resolved.grokBin, promptFile, resolved.timeoutMs, exec.signal, resolved.maxTurns);
+          let xaiKey;
+          try {
+            xaiKey = await resolveXaiKey(resolved.xaiApiKey, ctx);
+          } catch {
+            // no DSH/env/grok-login credential — let the CLI surface its own auth error
+          }
+          const stdout = await runGrok(
+            resolved.grokBin,
+            promptFile,
+            resolved.timeoutMs,
+            exec.signal,
+            resolved.maxTurns,
+            xaiKey,
+          );
           return parseGrokOutput(stdout);
         } finally {
           await rm(workDir, { recursive: true, force: true }).catch(() => {});
@@ -638,7 +662,7 @@ async function apply(ctx, config) {
           style !== undefined
             ? `Follow the style specification below when generating the image.\n\n--- STYLE SPEC START ---\n${await loadStyleSnippet(style)}\n--- STYLE SPEC END ---\n\nContent request: ${prompt}`
             : prompt;
-        const key = await resolveXaiKey(resolved.xaiApiKey);
+        const key = await resolveXaiKey(resolved.xaiApiKey, ctx);
         const images = await generateImages(
           {
             key,
